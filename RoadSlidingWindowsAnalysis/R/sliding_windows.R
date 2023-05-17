@@ -27,16 +27,16 @@
     dplyr::group_by(!!as.name(fclass), !!as.name(name)) %>%
     dplyr::summarise(geometry = sf::st_union(geometry)) %>%
     dplyr::ungroup()
-  combined_roads$new_id <- row_number(combined_roads$geometry)
+  combined_roads$new_id <- dplyr::row_number(combined_roads$geometry)
   return(combined_roads)
 }
 
 .create_txtProgram_bar <- function(max){
-  return(txtProgressBar(min = 1, max = max, style = 3))
+  return(txtProgressBar(min = 0, max = max, style = 3))
 }
 
 .get_adj_lst <- function(roads){
-  graph.adjlist(sf::st_touches(roads))
+  igraph::graph.adjlist(sf::st_touches(roads))
 }
 
 .group_by_location <- function(roads, grouped_roads, name='name', fclass='fclass'){
@@ -45,7 +45,7 @@
   for (i in 1:nrow(roads_no_geom)) {
     roads_temp <- roads[ which(roads[[name]]==roads_no_geom[i,][[name]]
                                & roads[[fclass]] == roads_no_geom[i,][[fclass]]), ]
-    com <- components(.get_adj_lst(roads_temp))
+    com <- igraph::components(.get_adj_lst(roads_temp))
     roads_temp$groups <- com$membership
     roads_temp_grouped <- roads_temp %>%
       dplyr::group_by(groups) %>%
