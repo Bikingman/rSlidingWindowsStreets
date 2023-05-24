@@ -27,44 +27,21 @@
     dplyr::group_by(!!as.name(fclass), !!as.name(name)) %>%
     dplyr::summarise(geometry = sf::st_union(geometry)) %>%
     dplyr::ungroup()
-  combined_roads$new_id <- row_number(combined_roads$geometry)
+  combined_roads$new_id <- dplyr::row_number(combined_roads$geometry)
   return(combined_roads)
 }
 
 .create_txtProgram_bar <- function(max){
-  return(txtProgressBar(min = 1, max = max, style = 3))
+  return(txtProgressBar(min = 0, max = max, style = 3))
 }
 
 .get_adj_lst <- function(roads){
-  graph.adjlist(sf::st_touches(roads))
+  igraph::graph.adjlist(sf::st_touches(roads))
 }
 
-.group_by_location <- function(roads, grouped_roads, name='name', fclass='fclass'){
-  pb <- .create_txtProgram_bar(nrow(grouped_roads))
-  roads_no_geom <- grouped_roads %>% sf::st_drop_geometry()
-  for (i in 1:nrow(roads_no_geom)) {
-    roads_temp <- roads[ which(roads[[name]]==roads_no_geom[i,][[name]]
-                               & roads[[fclass]] == roads_no_geom[i,][[fclass]]), ]
-    com <- components(.get_adj_lst(roads_temp))
-    roads_temp$groups <- com$membership
-    roads_temp_grouped <- roads_temp %>%
-      dplyr::group_by(groups) %>%
-      dplyr::summarise(geometry = sf::st_union(geometry)) %>%
-      dplyr::ungroup()
-    if (i ==1){
-      roads_final <- roads_temp_grouped
-    } else {
-      roads_final <- rbind(roads_final, roads_temp_grouped)
-    }
-    setTxtProgressBar(pb, i)
-  }
-  return(roads_final)
-}
-
-
-.get_seq <- function(n, per, step){
+.get_seq <- function(n, per, step, length){
   if(n <= 1){
-    seq <- c(0.0, 1, step)
+    seq <- seq(0.0, n, step)
   } else {
     seq <- seq(0, 1, per)
   }
@@ -72,8 +49,7 @@
 }
 
 .linemerge_line <- function(line){
-  l <- sf::st_cast(sf::st_line_merge(
-    st_union(sf::st_cast(line, "MULTILINESTRING"))), "LINESTRING")
+  l <- sf::st_cast(sf::st_line_merge(sf::st_union(lwgeom::st_snap_to_grid(line, .1))), "LINESTRING")
   l <- sf::st_as_sf(l)
   return(l)
 }
@@ -82,8 +58,30 @@
   return(1/(length/step))
 }
 
+.group_by_location <- function(roads, grouped_roads, name='name', fclass='fclass'){
+  pb <- .create_txtProgram_bar(nrow(grouped_roads))
+  roads_df <- lapply(1:nrow(grouped_roads), function(i){
+    setTxtProgressBar(pb, i)
+    roads_temp <- roads[ which(roads[[name]]==grouped_roads[i,][[name]]
+                                       & roads[[fclass]] == grouped_roads[i,][[fclass]]), ]
+    if(nrow(roads_temp) == 1){
+      roads_temp_grouped <- grouped_roads[i,] %>%
+        dplyr::select(geometry) 
+        
+    } else {
+      com <- igraph::components(.get_adj_lst(roads_temp))
+      roads_temp$groups <- com$membership
+      roads_temp_grouped <- roads_temp %>%
+        dplyr::group_by(groups) %>%
+        dplyr::summarise(geometry = sf::st_union(geometry)) %>%
+        dplyr::select(-groups)
+    }
+  })
+  return(roads_df %>% dplyr::bind_rows())
+}
 
-#' Creates 
+
+#' Creates road corridors, grouped by name, functional classification, and name
 #'
 #' Results are road segments aggregated by name, functional class, and proximity to each other. Can be considered corridors.
 #'
@@ -96,11 +94,16 @@ create_corridors <- function(roads, fclass='fclass', name='name'){
   print('Combining segments')
   cb <- .combine_roads(roads, fclass, name)
   print('Accounting for proximity ...')
-  loc <- .group_by_location(roads, cb, fclass, name)
-  return(sf::st_cast(loc, 'MULTILINESTRING'))
+  loc <- NULL
+  
+  for (name in unique(cb[[fclass]])){
+    r_df <- .group_by_location(roads, cb, fclass, name)
+    loc <- rbind(r_df, loc)
+  }
+  return(loc)
 }
 
-#' Builds Sliding Windows Analysis
+#' Builds segments for Sliding Windows Analysis
 #'
 #' Results are a polyline object that can help to identify locations 
 #' with a high frequency of crashes, highlighting potential high-injury areas.
@@ -114,37 +117,67 @@ create_corridors <- function(roads, fclass='fclass', name='name'){
 #' @export
 create_sliding_windows <- function(roads, name='name', fclass='fclass', win=0.5, step=0.1){
   roads_final <- transform_to_utm(roads)
+  roads_final <- .linemerge_line(roads_final)
   roads_final$length_mi <- as.double(sf::st_length(roads_final)/1609.34)
   pb <- .create_txtProgram_bar(nrow(roads_final))
-  for (i in 1:nrow(roads_final)) {
-    start_time <- Sys.time()
-    if (roads_final[i,]$length_mi > win){
-      
-      line <- .linemerge_line(roads_final[i,])
-      per <- .get_percent(roads_final[i,]$length_mi, step)
-      seq <- .get_seq(roads_final[i,]$length_mi, per, step)
-      n <- 0
-      for (j in seq){
-        n <- n + per
-        p <- lwgeom::st_linesubstring(line, n, ifelse(n + (step*(win*10)) < 1, n + (step*(win*10)), 1))
-        p <- sf::st_as_sf(p, sf_column_name='geometry')
-        if (j+per == per && i == 1) {
-          final_swa <- p
-        } else {
-          final_swa <- rbind(final_swa,  p)
-        }
+  sw <- lapply(1:nrow(roads_final), function(i){
+    per <- .get_percent(roads_final[i,]$length_mi, step)
+    seq <- .get_seq(roads_final[i,]$length_mi, per, step)
+    theline <- roads_final[i,]
+    f <- lapply(seq, function(x){
+      if (x + step/win <= 1){
+        p <- lwgeom::st_linesubstring(theline, x, ifelse(x + step/win < 1, x + step/win, 1))
+        sf::st_as_sf(p, sf_column_name='geometry')
       }
-    } else {
-      if ( i == 1) {
-        final_swa <- roads_final[i,]$geometry
-      } else {
-        final_swa <- rbind(final_swa,  roads_final[i,]$geometry)
-      }
-    }
-    print(Sys.time() - start_time)
+    })
     setTxtProgressBar(pb, i)
-  }
+    f %>% dplyr::bind_rows()
+  })
+  final_swa <- sw %>% dplyr::bind_rows()
+  final_swa$fid <- dplyr::row_number(final_swa)
+  
   return(final_swa)
 }
 
+#' Creates road corridors, grouped by name, functional classification, and name
+#'
+#' Results are road segments aggregated by name, functional class, and proximity to each other. Can be considered corridors.
+#'
+#' @param crashes sf object of road crashes 
+#' @param sliding_windows sf object of sliding windows segments
+#' @param crash_sev string, name of vehicle mode attribute within the crash data
+#' @param kas combined vector of fatality and severe injury crashes, e.g., c('K', 'A')
+#' @param crash_mode string, name of vehicle mode attribute within the crash data
+#' @param buffer string, name of vehicle mode attribute within the crash data
+#' @param sev_weights dictionary, name of vehicle mode attribute within the crash data
+#' @return a simple features object of corridors
+#' @export
+# counts_crashes <- function(crashes, 
+#                             sliding_windows, 
+#                             crash_sev_col, 
+#                             mode,
+#                             bike_crashes,
+#                             ped_crashes,
+#                             k,
+#                             a,
+#                             b,
+#                             c,
+#                             o,
+#                             buffer, 
+#                             sev_weights=list(k=1, a=2, b=1, c=1, o=1)
+#                             ){
+#   crashes <- transform_to_utm(crashes)
+#   sliding_windows <- transform_to_utm(sliding_windows)
+#   sliding_windows <- sliding_windows %>% 
+#   bike_crashes <- 
+#   ped_crashes <- 
+#   kas_crashes <-
 
+
+
+#   f <- lapply(1:nrow(sliding_windows), function(x){
+      
+#     })
+
+#   return(loc)
+# }
