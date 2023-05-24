@@ -152,32 +152,32 @@ create_sliding_windows <- function(roads, name='name', fclass='fclass', win=0.5,
 #' @param sev_weights dictionary, name of vehicle mode attribute within the crash data
 #' @return a simple features object of corridors
 #' @export
-counts_crashes <- function(crashes, 
-                            sliding_windows, 
-                            crash_sev_col, 
-                            mode,
-                            bike_crashes,
-                            ped_crashes,
-                            k,
-                            a,
-                            b,
-                            c,
-                            o,
-                            buffer, 
-                            sev_weights=list(k=1, a=2, b=1, c=1, o=1)
-                            ){
-  crashes <- transform_to_utm(crashes)
-  sliding_windows <- transform_to_utm(sliding_windows)
-  sliding_windows <- sliding_windows %>% 
-  bike_crashes <- 
-  ped_crashes <- 
-  kas_crashes <-
+# counts_crashes <- function(crashes, 
+#                             sliding_windows, 
+#                             crash_sev_col, 
+#                             mode,
+#                             bike_crashes,
+#                             ped_crashes,
+#                             k,
+#                             a,
+#                             b,
+#                             c,
+#                             o,
+#                             buffer, 
+#                             sev_weights=list(k=1, a=2, b=1, c=1, o=1)
+#                             ){
+#   crashes <- transform_to_utm(crashes)
+#   sliding_windows <- transform_to_utm(sliding_windows)
+#   sliding_windows <- sliding_windows %>% 
+#   bike_crashes <- 
+#   ped_crashes <- 
+#   kas_crashes <-
 
 
 
-  f <- lapply(1:nrow(sliding_windows), function(x){
+#   f <- lapply(1:nrow(sliding_windows), function(x){
       
-    })
+#     })
 
-  return(loc)
-}
+#   return(loc)
+# }
