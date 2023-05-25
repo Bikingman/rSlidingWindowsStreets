@@ -54,5 +54,8 @@ sql/
 # RStudio Connect folder
 rsconnect/
 
+# qgis maps
+*.qgz
+
 data/
 output/
