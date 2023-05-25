@@ -15,7 +15,7 @@ roads2 <- roads_base %>% dplyr::filter(fclass %in% c( 'motorway', 'motorway_link
 
 
 cors1 <- create_corridors(roads2)
-sw1 <- create_sliding_windows(roads_loc_ar)
+sw1 <- create_sliding_windows(cors1)
 
 
 file.remove('output//roads_ar.shp')
