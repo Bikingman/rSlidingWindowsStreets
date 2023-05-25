@@ -45,8 +45,10 @@ docs/
 # translation temp files
 po/*~
 
+# local sql files for post processing
 sql/
 
+# local vscode settings
 .vscode/
 
 # RStudio Connect folder
