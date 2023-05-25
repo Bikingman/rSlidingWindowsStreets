@@ -45,8 +45,17 @@ docs/
 # translation temp files
 po/*~
 
+# local sql files for post processing
+sql/
+
+# local vscode settings
+.vscode/
+
 # RStudio Connect folder
 rsconnect/
+
+# qgis maps
+*.qgz
 
 data/
 output/

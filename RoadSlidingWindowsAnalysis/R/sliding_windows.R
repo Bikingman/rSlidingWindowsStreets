@@ -39,17 +39,12 @@
   igraph::graph.adjlist(sf::st_touches(roads))
 }
 
-.get_seq <- function(n, per, step, length){
-  if(n <= 1){
-    seq <- seq(0.0, n, step)
-  } else {
-    seq <- seq(0, 1, per)
-  }
-  return(seq)
+.get_seq <- function(per){
+  return( seq(0, 1, per))
 }
 
 .linemerge_line <- function(line){
-  l <- sf::st_cast(sf::st_line_merge(sf::st_union(lwgeom::st_snap_to_grid(line, .1))), "LINESTRING")
+  l <- sf::st_line_merge(lwgeom::st_snap_to_grid(line, .01))
   l <- sf::st_as_sf(l)
   return(l)
 }
@@ -94,13 +89,7 @@ create_corridors <- function(roads, fclass='fclass', name='name'){
   print('Combining segments')
   cb <- .combine_roads(roads, fclass, name)
   print('Accounting for proximity ...')
-  loc <- NULL
-  
-  for (name in unique(cb[[fclass]])){
-    r_df <- .group_by_location(roads, cb, fclass, name)
-    loc <- rbind(r_df, loc)
-  }
-  return(loc)
+  return(.group_by_location(roads, cb, fclass, name))
 }
 
 #' Builds segments for Sliding Windows Analysis
@@ -116,23 +105,38 @@ create_corridors <- function(roads, fclass='fclass', name='name'){
 #' @return a simple features object of windows from sliding windows analysis
 #' @export
 create_sliding_windows <- function(roads, name='name', fclass='fclass', win=0.5, step=0.1){
-  roads_final <- transform_to_utm(roads)
+  roads_final <- roads %>% sf::st_cast('MULTILINESTRING')
+  roads_final <- transform_to_utm(roads_final)
   roads_final <- .linemerge_line(roads_final)
+  multi <- subset(roads_final, st_geometry_type(roads_final) == 'MULTILINESTRING')
+  multi <- st_cast(multi, 'LINESTRING')
+  lines <- subset(roads_final, st_geometry_type(roads_final) == 'LINESTRING')
+  roads_final <- rbind(multi, lines)
   roads_final$length_mi <- as.double(sf::st_length(roads_final)/1609.34)
   pb <- .create_txtProgram_bar(nrow(roads_final))
   sw <- lapply(1:nrow(roads_final), function(i){
-    per <- .get_percent(roads_final[i,]$length_mi, step)
-    seq <- .get_seq(roads_final[i,]$length_mi, per, step)
-    theline <- roads_final[i,]
-    f <- lapply(seq, function(x){
-      if (x + step/win <= 1){
-        p <- lwgeom::st_linesubstring(theline, x, ifelse(x + step/win < 1, x + step/win, 1))
-        sf::st_as_sf(p, sf_column_name='geometry')
-      }
-    })
     setTxtProgressBar(pb, i)
-    f %>% dplyr::bind_rows()
-  })
+      if (roads_final[i,]$length_mi <= step*2){
+        roads_final[i,]
+      } else{
+        per <- .get_percent(roads_final[i,]$length_mi, step)
+        seq <- .get_seq(per)
+       
+        if (length(seq) > 1){
+          seq <-  seq[-length(seq)]
+          seq <-  append(seq, 1)
+        } else {
+          seq <-  append(seq, 1)
+        }
+        f <- lapply(2:length(seq)-1, function(x){
+          the_max <- if(is.na(seq[x+4])){1} else {seq[x+4]}
+          p <- lwgeom::st_linesubstring(roads_final[i,], as.numeric(seq[x]), the_max)
+          sf::st_as_sf(p, sf_column_name='geometry')
+        })
+        f %>% dplyr::bind_rows()
+      }
+      
+    })
   final_swa <- sw %>% dplyr::bind_rows()
   final_swa$fid <- dplyr::row_number(final_swa)
   
