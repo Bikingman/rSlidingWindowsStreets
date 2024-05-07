@@ -4,3 +4,4 @@ export("%>%")
 export(create_corridors)
 export(create_sliding_windows)
 importFrom(magrittr,"%>%")
+
